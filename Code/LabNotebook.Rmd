@@ -1,0 +1,456 @@
+---
+title: 'Lab Notebook: YNP wolf-bear CDV analyses'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+Raw Data 
+-------------------------------------------------
+Let's take an initial look at the data, just to make sure everything is kosher. Here is the summary of the combined data frame prior to re-writing into the intervals needed for the statistical analysis.  
+
+```{r, setup, echo = FALSE}
+knitr::opts_knit$set(root.dir = 
+                'D:/My Documents/Research/Active Papers/GYE distemper')
+```
+
+
+```{r, echo = FALSE}
+#not sure why this must be separated 
+load("./Data/CDV_all.RData") #all data
+summary(CDV_all)
+```
+
+Sample sizes: 
+-----------------------------
+
+Number of male and female bears
+```{r echo = F}
+bear.dat <- subset(CDV_all, CDV_all$spp == "bear")
+uniq.bears <- length(unique(bear.dat$UID))
+ntests.bears <- dim(bear.dat)[1]
+min.date <- min(bear.dat$trap.date)
+max.date <- max(bear.dat$trap.date)
+
+tmp <- as.matrix(table(bear.dat$UID, bear.dat$sex))
+tmp[which(tmp > 1)] <- 1
+colSums(tmp)
+```
+
+Number of bear tests: `r ntests.bears`  
+number of unique bears: `r uniq.bears`  
+first test:  `r min.date`  
+last test `r max.date`
+
+Number of unique male and female wolves:   
+```{r echo = F}
+wolf.dat <- subset(CDV_all, CDV_all$spp == "wolf")
+uniq.wolf <- length(unique(wolf.dat$UID))
+ntests.wolf <- dim(wolf.dat)[1]
+min.date <- min(wolf.dat$trap.date)
+max.date <- max(wolf.dat$trap.date)
+
+tmp <- as.matrix(table(wolf.dat$UID, wolf.dat$sex))
+tmp[which(tmp > 1)] <- 1
+colSums(tmp)
+```
+
+Number of wolf tests: `r ntests.wolf`  
+number of unique wolf: `r uniq.wolf`  
+first test:  `r min.date`  
+last test `r max.date`
+
+Titers
+---------------------
+
+Histogram of titers by species: 
+
+```{r echo = F, message = T}
+library(ggplot2)
+ggplot(CDV_all, aes(log(titer))) + 
+  geom_histogram(bins = 50) + geom_vline(xintercept = log(24), colour = "red") + geom_vline(xintercept = log(16)) + facet_grid(~spp)
+```
+
+Prevalence
+------------------
+
+The overall # and prevalence of CDV positives across all the records (assuming a cut-off of titer >= 16) is: 
+
+```{r, echo = FALSE, message = F}
+CDV_all$disease16 <- "N"
+CDV_all$disease16[CDV_all$titer >= 16] <- "P"
+CDV_all$disease16 <- as.factor(CDV_all$disease16)
+
+tmp <- as.data.frame(table(CDV_all$disease16, CDV_all$sex, CDV_all$spp))
+names(tmp) <- c("distemper", "sex", "spp", "N")
+# reshape and calculate the cis
+library(reshape2)
+tmp <- dcast(tmp, spp + sex ~ distemper, sum)
+tmp$prev <- tmp$P/tmp$N
+tmp$lci <- 0
+tmp$hci <- 0
+for(i in 1:dim(tmp)[1]){
+  cis <- binom.test(tmp$P[i], tmp$N[i])$conf.int
+  tmp$lci[i] <- cis[1]
+  tmp$hci[i] <- cis[2]
+}
+
+ggplot(tmp, aes(x = sex, y = prev)) + 
+  geom_point(size = 2) + 
+  geom_errorbar(aes(ymin = lci, ymax = hci), width = 0) + 
+  facet_grid(~spp)
+
+tmp <- as.data.frame(table(CDV_all$disease16, CDV_all$spp))
+names(tmp) <- c("distemper", "spp", "N")
+print(tmp)
+```
+
+Same thing, but for a cut-off of 24: 
+
+```{r, echo = FALSE, message = F}
+CDV_all$disease24 <- "N"
+CDV_all$disease24[CDV_all$titer >= 24] <- "P"
+CDV_all$disease24 <- as.factor(CDV_all$disease24)
+
+tmp <- as.data.frame(table(CDV_all$disease24, CDV_all$sex, CDV_all$spp))
+names(tmp) <- c("distemper", "sex", "spp", "N")
+# reshape and calculate the cis
+tmp <- dcast(tmp, spp + sex ~ distemper, sum)
+tmp$prev <- tmp$P/tmp$N
+tmp$lci <- 0
+tmp$hci <- 0
+for(i in 1:dim(tmp)[1]){
+  cis <- binom.test(tmp$P[i], tmp$N[i])$conf.int
+  tmp$lci[i] <- cis[1]
+  tmp$hci[i] <- cis[2]
+}
+
+ggplot(tmp, aes(x = sex, y = prev)) + 
+  geom_point(size = 2) + 
+  geom_errorbar(aes(ymin = lci, ymax = hci), width = 0) + 
+  facet_grid(~spp)
+
+tmp <- as.data.frame(table(CDV_all$disease16, CDV_all$spp))
+names(tmp) <- c("distemper", "spp", "N")
+print(tmp)
+```
+
+The prevalence using only the first test and a cut-off of 16:
+```{r, echo = FALSE, message = F}
+# for this I think we can keep the code that used the interval data, which 
+# should include all first tests
+load("./Data/Wolf_Bear_16.RData")
+CDV.16 <- CDV
+
+tmp <- CDV.16[order(CDV.16$id2, CDV.16$left.date),]
+tmp$first.test <- TRUE
+for(i in 2:dim(tmp)[1]){
+  if(tmp$id2[i] == tmp$id2[(i-1)]){
+    tmp$first.test[i] <- FALSE
+    }
+}
+
+# remove multiple tests from tmp
+tmp <- tmp[tmp$first.test==TRUE,]
+# calculate prevalence
+tmp2 <- as.data.frame(table(tmp$distemper, tmp$sex, tmp$spp))
+names(tmp2) <- c("distemper", "sex", "spp", "N")
+
+# reshape and calculate the cis
+tmp2 <- dcast(tmp2, spp + sex ~ distemper, sum)
+tmp2$prev <- tmp2$P/tmp2$N
+tmp2$lci <- 0
+tmp2$hci <- 0
+for(i in 1:dim(tmp2)[1]){
+  cis <- binom.test(tmp2$P[i], tmp2$N[i])$conf.int
+  tmp2$lci[i] <- cis[1]
+  tmp2$hci[i] <- cis[2]
+}
+
+ggplot(tmp2, aes(x = sex, y = prev)) + 
+  geom_point(size = 2) + 
+  geom_errorbar(aes(ymin = lci, ymax = hci), width = 0) + 
+  facet_grid(~spp)
+rm(tmp2)
+
+tmp3 <- as.data.frame(table(CDV.16$distemper, CDV.16$spp))
+names(tmp3) <- c("distemper", "spp", "N")
+print(tmp3)
+```
+
+So, wolves a little higher than bears. Maybe some indication of males less than females. 
+
+Do it again for a cut-off of 24:  
+
+```{r, echo = FALSE, message = F}
+# for this I think we can keep the code that used the interval data, which 
+# should include all first tests
+load("./Data/Wolf_Bear_24.RData")
+CDV.24 <- CDV
+tmp <- CDV.24[order(CDV.24$id2, CDV.24$left.date),]
+tmp$first.test <- TRUE
+for(i in 2:dim(tmp)[1]){
+  if(tmp$id2[i] == tmp$id2[(i-1)]){
+    tmp$first.test[i] <- FALSE
+    }
+}
+
+# remove multiple tests from tmp
+tmp <- tmp[tmp$first.test==TRUE,]
+# calculate prevalence
+tmp2 <- as.data.frame(table(tmp$distemper, tmp$sex, tmp$spp))
+names(tmp2) <- c("distemper", "sex", "spp", "N")
+
+# reshape and calculate the cis
+tmp2 <- dcast(tmp2, spp + sex ~ distemper, sum)
+tmp2$prev <- tmp2$P/tmp2$N
+tmp2$lci <- 0
+tmp2$hci <- 0
+for(i in 1:dim(tmp2)[1]){
+  cis <- binom.test(tmp2$P[i], tmp2$N[i])$conf.int
+  tmp2$lci[i] <- cis[1]
+  tmp2$hci[i] <- cis[2]
+}
+
+ggplot(tmp2, aes(x = sex, y = prev)) + 
+  geom_point(size = 2) + 
+  geom_errorbar(aes(ymin = lci, ymax = hci), width = 0) + 
+  facet_grid(~spp)
+rm(tmp2)
+
+tmp3 <- as.data.frame(table(CDV.24$distemper, CDV.24$spp))
+names(tmp3) <- c("distemper", "spp", "N")
+print(tmp3)
+```
+So, prevalence dropped by more in wolves than it did in bears with the different cut-off. Roughly about 30% plus or minus 10% and maybe males still a little less than females. 
+
+At present we are assuming all bears caught north of UTM = 4935925 is a "northern range" bear. Clearly this is a crude approximation. 
+
+Left and right variables refer to the start and ending of the interval when the individual could have seroconverted. Individuals that are tested multiple times, that are initially negative will have multiple intervals. Left and right.months are indices of the month, counting from 1 to `r max(CDV$right.months)`. 
+
+Most bears and wolves enter the dataset at birth which we are assuming is in February and March. Those that are entering at other times are animals that are tested multiple times (so their interval goes from date of test 1 to date of test 2 rather than birth to test 1)  
+
+Histogram of the starting month of the interval.  
+
+```{r, echo = FALSE}
+tmp4 <- as.POSIXlt(CDV.16$left.date)
+par(mfrow = c(1,2))
+hist(as.numeric(tmp4$mon[which(CDV$spp == "bear")]), xlab = "Month", main = "Bears")
+hist(as.numeric(tmp4$mon[which(CDV$spp == "wolf")]), xlab = "Month", main = "Wolves")
+```
+
+The testing intervals end at capture when the disease status becomes known. Bears are caught from Mar to September, but wolves are mostly caught in January. 
+
+Histogram of the ending dates of the interval. 
+```{r, echo = FALSE}
+tmp4 <- as.POSIXlt(CDV.16$right.date)
+par(mfrow = c(1,2))
+hist(as.numeric(tmp4$mon[which(CDV$spp == "bear")]), xlab = "Month", main = "Bears")
+hist(as.numeric(tmp4$mon[which(CDV$spp == "wolf")]), xlab = "Month", main = "Wolves")
+```
+
+Individuals should not start and stop their intervals in the same month. This would be problematic for the statistical model.  
+```{r}
+which(CDV.16$left.months == CDV.16$right.months)
+#should be integer(0)
+```
+
+The average duration (in years) of the first intervals for the two species are: 
+
+```{r echo = FALSE}
+tmp$duration <- as.numeric((tmp$right.date - tmp$left.date)/364.25) # in years
+dur <- aggregate(tmp$duration, by = list(tmp$spp), FUN = mean)
+ggplot(tmp, aes(x = spp, y = duration)) + geom_boxplot()
+```
+
+So bear intervals are about `r round(dur$x[1], digits = 1)`, while wolves are `r round(dur$x[2], digits = 1)`. This means that bears are much less likely to get CDV per year than wolves (on average) because they have similar prevalence despite much longer intervals. 
+
+And what do the bear intervals look like pre 1996 vs. post 1996
+
+```{r echo = FALSE}
+tmp$pre97 <- T
+tmp$pre97[tmp$right.date > as.Date("1997-01-01")] <- FALSE
+table(tmp$spp, tmp$pre97)
+dur <- aggregate(tmp$duration, by = list(tmp$spp, tmp$pre97), FUN = mean)
+ggplot(tmp, aes(x = right.date, y = duration, color = spp)) + geom_point() + 
+	stat_smooth(method = loess)
+```
+
+
+
+Let's plot all of those intervals for cut-off 16.  
+```{r, echo = FALSE}
+source("./Code/plot_interval_fxn.r")
+
+par(mfrow = c(1,2))
+plot_bear_interval_bw(subset(CDV.16, CDV.16$spp == "bear"), 1.5) 
+plot_wolf_interval_bw(subset(CDV.16, CDV.16$spp == "wolf"), 1.5) 
+```
+
+Do it again for a cut-off of 24  
+
+```{r, echo = FALSE}
+source("./Code/plot_interval_fxn.r")
+#also let's write this figure to the Figure directory
+png(filename = "./Figures/intervals_bw24.png", 
+		bg = "white", width = 800, height = 400, units = "px")
+par(mfrow = c(1,2))
+plot_bear_interval_bw(subset(CDV.24, CDV.24$spp == "bear"), 1.5) 
+plot_wolf_interval_bw(subset(CDV.24, CDV.24$spp == "wolf"), 1.5) 
+dev.off()
+
+# now write to rmd
+par(mfrow = c(1,2))
+plot_bear_interval_bw(subset(CDV.24, CDV.24$spp == "bear"), 1.5) 
+plot_wolf_interval_bw(subset(CDV.24, CDV.24$spp == "wolf"), 1.5) 
+```
+
+For the rest of this, just assuming the 16 cut-off!
+
+Bear Seroconversions
+------------------------------------------------
+Let's do some initial looks at whether there are seroconversions for bears that are outside of the times when we think there were wolf outbreaks (1998, 2005, 2008). Here are those positive bears prior to 1995
+
+```{r, echo = FALSE}
+CDV.16$duration <- as.numeric((CDV.16$right.date - CDV.16$left.date)/364.25) # in years
+
+pre95bear <- subset(CDV.16, CDV.16$right.date < as.Date("1995/1/1") & CDV.16$spp == "bear") 
+post95bear <- subset(CDV.16, CDV.16$left.date > as.Date("1995/1/1") & CDV.16$spp == "bear") 
+
+pos.pre95 <- subset(CDV.16, CDV.16$right.date < as.Date("1995/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "P") # bears positive before 1995
+neg.pre95 <- subset(CDV.16, CDV.16$right.date < as.Date("1995/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "N") # bears negative before 1995
+
+pos.post95 <- subset(CDV.16, CDV.16$left.date > as.Date("1995/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "P") # bears positive after 1995
+neg.post95 <- subset(CDV.16, CDV.16$left.date > as.Date("1995/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "N") # bears negative after 1995
+
+npos.pre95 <- dim(pos.pre95)[1]
+nneg.pre95 <- dim(neg.pre95)[1]
+npos.post95 <- dim(pos.post95)[1]
+nneg.post95 <- dim(neg.post95)[1]
+
+prev.pre95 <- binom.test(npos.pre95, (npos.pre95 + nneg.pre95))
+prev.post95 <- binom.test(npos.post95, (npos.post95 + nneg.post95))
+print(pos.pre95)
+```
+
+The CDV prevalence of bears prior to 1995 was `r round(prev.pre95$estimate[1], 2)` (n = `r npos.pre95 + nneg.pre95`, 95% CI = [`r round(prev.pre95$conf.int, 2)`]). After 1995, the CDV prevalence in bears was `r round(prev.post95$estimate[1], 2)` (n = `r npos.post95 + nneg.post95`, 95%CI [`r round(prev.post95$conf.int, 2)`]). Which is not what I would have expected. The average duration of the testing intervals prior to 1995 was: `r round(mean(pre95bear$dur), 2)` SD = `r round(sd(pre95bear$dur), 2)`, while after 1995 it was `r round(mean(post95bear$dur), 2)` SD = `r round(sd(post95bear$dur), 2)`. It could be just because they are capture bears more, or that the captured bears are younger now than they used to be (might need to follow-up on this).  
+
+```{r, echo = FALSE}
+pos.95.05 <- subset(CDV.16, CDV.16$left.date > as.Date("2000/1/1") & 
+                      CDV.16$right.date < as.Date("2005/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "P")# bears positive between 2000 and 2005
+neg.95.05 <- subset(CDV.16, CDV.16$left.date > as.Date("2000/1/1") & 
+                      CDV.16$right.date < as.Date("2005/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "N")
+```
+
+There were `r dim(pos.95.05)[1]` seroconversions from 2000 to 2005 compared to `r dim(neg.95.05)[1]` that did not seroconvert. 
+
+```{r, echo = FALSE}
+pos.06.07 <- subset(CDV.16, CDV.16$left.date > as.Date("2006/1/1") & 
+                      CDV.16$right.date < as.Date("2008/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "P")# bears positive between 2006 and 2008
+neg.06.07 <- subset(CDV.16, CDV.16$left.date > as.Date("2006/1/1") & 
+                      CDV.16$right.date < as.Date("2008/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "N")
+```
+
+From 2006 to pre 2008 there were `r dim(pos.06.07)[1]` seroconversions during this timespan compared to `r  dim(neg.06.07)[1]` that did not seroconvert.   
+
+```{r, echo = FALSE}
+pos.post08 <- subset(CDV.16, CDV.16$left.date > as.Date("2009/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "P")# bears positive from 2009 onwards
+neg.post08 <- subset(CDV.16, CDV.16$left.date > as.Date("2009/1/1") & 
+                      CDV.16$spp == "bear" & CDV.16$distemper == "N")
+```
+
+From 2009 onwards there were `r dim(pos.post08)[1]` seroconversions during this timespan compared to `r  dim(neg.post08)[1]` that did not seroconvert. Here are those seroconverters post 2008. 
+
+```{r, echo = FALSE}
+print(pos.post08)
+```
+
+The last three bears listed are occurring after any known CDV in wolves, with one of those bears on the northern range and the other 2 being south and east of Jackson.  
+
+If I were to look for some sort of cub survival impact using recently exposed sows, I would look at the following individuals: 
+```{r, echo = FALSE}
+CDV$dur <- as.numeric(CDV$right.date - CDV$left.date)/365.25
+print(subset(CDV, CDV$spp == "bear" & CDV$dur < 3 & 
+               CDV$distemper == "P" & CDV$sex == "F"))
+```
+
+There are only 3 female bears that are positive with testing intervals of less than 3 years in duration (which is already pretty liberal). Seems like it is not worth looking into. 
+
+
+Prior Distributions
+-------------------------------------------------
+The model puts a prior on the log hazard $\gamma$, where the probability of infection for a given time interval $t$ is: $\rho_t = 1 - exp \left(-exp\left( \gamma_t \right) \right)$.
+Initially we assumed that $\gamma \sim Uniform(-20,2)$. On a monthly and annual basis this relates to a probability of: 
+
+```{r, echo = FALSE}
+gamma <- runif(1000,-20, 2)
+rho <- 1 - exp( -exp(gamma))
+annual_rho <- 1-(1-rho)^12 # dodge infection 12 times, then 1 minus that
+par(mfrow = c(1,2))
+hist(rho, xlab = "Monthly infection probability")
+hist(annual_rho, xlab = "Annual infection probability")
+```
+  
+where the mean annual probability of infection is `r round(mean(annual_rho), digits = 2)` and the probability of being positive at age 2 is `r round(1-(1-mean(annual_rho))^2, digits = 2)`, while at age 8 it is `r round(1-(1-mean(annual_rho))^8, digits = 2)`. This seems to concentrate the prior at the extremes of 0 or 1, but that is true for any diffuse prior when transformed from the log to probability scales. Let's try $\gamma \sim Norm(-6, 4)$.  
+
+```{r, echo = FALSE}
+gamma <- rnorm(4000,-6, 4)
+rho <- 1 - exp( -exp(gamma))
+annual_rho <- 1-(1-rho)^12 # not infected 12x, then 1 minus that
+par(mfrow = c(1,2))
+hist(rho, xlab = "Monthly infection probability")
+hist(annual_rho, xlab = "Annual infection probability")
+```
+    
+where the mean annual probability of infection is `r round(mean(rho), digits = 2)` and the probability of being positive at age 2 is `r round(1-(1-mean(rho))^2, digits = 2)`, while at age 8 it is `r round(1-(1-mean(rho))^8, digits = 2)`. This is pretty similar to the uniform. At present I'm fixing the hazard to 0 for years where there are no wolf data. 
+
+In some models I would like to correlate the bear and wolf hazards such that $\gamma_{s=2,t} = \beta_t + \alpha_1 \gamma_{s=1,t}$, where $\beta_t \sim Normal(\mu, \sigma^2)$ and $\alpha \sim Normal(0, \sigma_{alpha}^2)$. The problem is that even though $\alpha$ has a mean of 0, the variance of $alpha$ also increases the variance of $\gamma$, which means that the more terms I add in to the prediction of $\gamma$ the wider my overall prior is. 
+
+As a trial run, let's assume $\alpha \sim Normal(0,4)$, $\beta_t \sim Normal(-6, 4)$, and $\gamma_{s=2} = \beta_t + \alpha * \gamma_{s=1,t}$ and species 1 is wolves and species two is bears. 
+  
+More Diffuse Normal Priors
+-------------------------------------------------
+Putting in some more diffuse priors on Model5b just to check if conclusions remain the same on parameter estimates. Testing here to look at what should count as diffuse. 
+
+Our previous prior was $\gamma \sim Norm(-6, 4)$. Let's widen that to $\gamma \sim Norm(-6, 10)$.  
+
+```{r, echo = FALSE}
+gamma2 <- rnorm(4000,-6, 10)
+rho2 <- 1 - exp( -exp(gamma2))
+annual_rho2 <- 1-(1-rho2)^12 # not infected 12x, then 1 minus that
+
+gamma1 <- rnorm(4000,-6, 4)
+rho1 <- 1 - exp( -exp(gamma1))
+annual_rho1 <- 1-(1-rho1)^12 # not infected 12x, then 1 minus that
+
+par(mfrow = c(2,2))
+hist(gamma1, xlab = "Log Hazard", main = "Norm(-6,4)")
+hist(gamma2, xlab = "Log Hazard", main = "Norm(-6,10)")
+hist(annual_rho1, xlab = "Annual infection probability")
+hist(annual_rho2, xlab = "Annual infection probability")
+```
+
+With the new more diffuse prior the mean annual probability of infection is `r round(mean(annual_rho2), digits = 2)` and the probability of being positive at age 2 is `r round(1-(1-mean(annual_rho2))^2, digits = 2)`, while at age 8 it is `r round(1-(1-mean(annual_rho2))^8, digits = 2)`.
+
+Test sensitivity
+-------------------------------------------------
+
+For prior distributions on the test performance we assumed that $q^-$ and $q^+$ were $\sim Beta(25, 0.5)$, which looks like
+
+```{r, echo = FALSE}
+hist(rbeta(1000, 25, .5))
+```
+    
+For a more diffuse prior on the test performance, also tested $\sim Beta(10, 0.5)$
+```{r, echo = FALSE}
+hist(rbeta(1000, 10, .5))
+```

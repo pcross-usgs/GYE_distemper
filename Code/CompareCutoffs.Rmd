@@ -1,0 +1,197 @@
+---
+title: "Compare cutoff results"
+output: html_document
+---
+
+
+```{r, setup, echo = FALSE}
+knitr::opts_knit$set(root.dir = 'D:/My Documents/Research/Active Papers/YNP CDV')
+```
+
+```{r echo=FALSE, message = F}
+library(knitr)
+library(reshape2)
+library(ggplot2)
+library(R2jags)
+```
+What was the distribution of titer levels?  
+
+```{r echo = F, warning=FALSE}
+load("./Data/CDV_all.RData") #all the tests and titer data
+library(ggplot2)
+ggplot(CDV_all, aes(log(titer))) + 
+  geom_histogram(bins = 50) +
+	geom_vline(xintercept = log(12), colour = "grey", linetype = "dashed") + 
+	geom_vline(xintercept = log(24), colour = "red") + 
+	geom_vline(xintercept = log(16)) + 
+	facet_grid(~spp) + theme_bw() 
+```
+
+```{r echo = F, warning=FALSE, include=FALSE}
+tmp <- subset(CDV_all, CDV_all$titer >14 & CDV_all$titer<24) # 
+tmp2 <- subset(CDV_all, CDV_all$titer >11 & CDV_all$titer<15) # 
+```
+
+There were `r dim(tmp)[1]` individuals that were in the grey area between a threshold of 15 and 24, and there were `r dim(tmp2)[1]` between >11 and <15. For those between 15 and 24: 
+
+```{r echo = F, warning=FALSE}
+table(tmp$spp)
+```
+
+For those between 11 and 15: 
+
+```{r echo = F, warning=FALSE}
+table(tmp2$spp)
+```
+
+So there were quite a few wolves that are in this boundary zone between positive and negative. 
+
+And broken down by year for those between 11 and 15: 
+
+```{r echo = F, warning=FALSE}
+library(lubridate)
+yr <- year(tmp2$trap.date)
+table(year(tmp2$trap.date), tmp2$spp)
+```
+
+So many of them fall between 2003 and 2005.
+
+And broken down by year for those between 11 and 15: 
+```{r echo = F, warning=FALSE}
+yr <- year(tmp$trap.date)
+table(year(tmp$trap.date), tmp$spp)
+```
+
+So a few of these are falling in 2011 and 2012. 
+
+
+Model Output
+--------------------------
+
+Model 5 generally seems to be the best model structure regardless of the titer cut-off, so here I will just focus on comparing those results. 
+
+First load in all the model output results that are located in the /Output folder. 
+```{r echo = F, warning=FALSE, include=FALSE}
+source("./Code/plot_haz_fxn.R")
+load("./Output/cutoff12/mod5b_12.RData")
+mod5b_12 <- mod5b
+load("./Output/cutoff16/mod5b_16.RData")
+mod5b_16 <- mod5b
+load("./Output/cutoff24/mod5b_24.RData")
+mod5b_24 <- mod5b
+rm(mod5b)
+```
+
+Compare the annual probabilities:  
+
+```{r echo = FALSE, fig.width=4, fig.height=8}
+par(mfrow = c(3,1), mar = c(5,5,1,1))
+plot_haz(mod5b_12, "Prob.yr.b", "Prob.yr.w")
+plot_haz(mod5b_16, "Prob.yr.b", "Prob.yr.w")
+plot_haz(mod5b_24, "Prob.yr.b", "Prob.yr.w")
+```
+  
+What does this mean anything for our inference about how correlated the two species are?  
+
+```{r echo = F, message=FALSE}
+x <- data.frame(threshold.12 = mod5b_12$BUGSoutput$sims.list$alpha,
+								threshold.16 = mod5b_16$BUGSoutput$sims.list$alpha,
+								threshold.24 = mod5b_24$BUGSoutput$sims.list$alpha)
+
+library(ggplot2); library(reshape2)
+d <- melt(x)
+ggplot(d,aes(x=value, fill = variable)) + geom_density(alpha=0.25) + 
+	ggtitle("Slope parameter") + 
+	scale_fill_discrete(name = "Titer threshold", labels = c("12", "16", "24")) + 
+	theme_bw() + 
+	theme(text = element_text(size = 20),
+				panel.grid.major = element_blank(), 
+				panel.grid.minor = element_blank(),
+				legend.position = c(.8,.8))
+```
+
+Big difference when using the titer >= 12 threshold.
+
+What do the testing error posteriors look like? The expectation may be that a higher cut-off would result in fewer false positives and more false negatives.  
+
+```{r echo = F, message=FALSE}
+n <- mod5b_16$BUGSoutput$n.sims
+pos <- data.frame(q.pos.bear.12 = mod5b_12$BUGSoutput$sims.list$qpos.bears,
+								q.pos.bear.16 = mod5b_16$BUGSoutput$sims.list$qpos.bears,
+								q.pos.bear.24 = mod5b_24$BUGSoutput$sims.list$qpos.bears,
+								q.pos.wolf.12 = mod5b_12$BUGSoutput$sims.list$qpos.wolves,
+								q.pos.wolf.16 = mod5b_16$BUGSoutput$sims.list$qpos.wolves,
+								q.pos.wolf.24 = mod5b_24$BUGSoutput$sims.list$qpos.wolves,
+								q.pos.prior = rbeta(n, 25, 0.5))
+
+neg <- data.frame(q.neg.bear.12 = mod5b_12$BUGSoutput$sims.list$qneg.bears,
+								q.neg.wolf.12 = mod5b_12$BUGSoutput$sims.list$qneg.wolves, 
+								q.neg.bear.16 = mod5b_16$BUGSoutput$sims.list$qneg.bears,
+								q.neg.wolf.16 = mod5b_16$BUGSoutput$sims.list$qneg.wolves, 
+								q.neg.bear.24 = mod5b_24$BUGSoutput$sims.list$qneg.bears,
+								q.neg.wolf.24 = mod5b_24$BUGSoutput$sims.list$qneg.wolves, 
+								q.neg.prior = rbeta(n, 25, 0.5))
+								
+pos.m <- melt(pos)
+neg.m <- melt(neg)
+names(pos.m) <- c("model", "q.pos")
+names(neg.m) <- c("model", "q.neg")
+
+pos.m$spp <- "prior"
+pos.m$spp[pos.m$model %in% c("q.pos.wolf.12", "q.pos.wolf.16", "q.pos.wolf.24")] <- "wolf"
+pos.m$spp[pos.m$model %in% c("q.pos.bear.12", "q.pos.bear.16", "q.pos.bear.24")] <- "bear"
+pos.m$spp <- as.factor(pos.m$spp)
+
+pos.m$threshold <- "prior"
+pos.m$threshold[pos.m$model %in% c("q.pos.wolf.12", "q.pos.bear.12")] <- 12
+pos.m$threshold[pos.m$model %in% c("q.pos.wolf.16", "q.pos.bear.16")] <- 16
+pos.m$threshold[pos.m$model %in% c("q.pos.wolf.24", "q.pos.bear.24")] <- 24
+pos.m$threshold <- as.factor(pos.m$threshold)
+
+neg.m$spp <- "prior"
+neg.m$spp[neg.m$model %in% c("q.neg.wolf.12", "q.neg.wolf.16", "q.neg.wolf.24")] <- "wolf"
+neg.m$spp[neg.m$model %in% c("q.neg.bear.12", "q.neg.bear.16", "q.neg.bear.24")] <- "bear"
+neg.m$spp <- as.factor(neg.m$spp)
+
+neg.m$threshold <- "prior"
+neg.m$threshold[neg.m$model %in% c("q.neg.wolf.12", "q.neg.bear.12")] <- 12
+neg.m$threshold[neg.m$model %in% c("q.neg.wolf.16", "q.neg.bear.16")] <- 16
+neg.m$threshold[neg.m$model %in% c("q.neg.wolf.24", "q.neg.bear.24")] <- 24
+neg.m$threshold <- as.factor(neg.m$threshold)
+ggplot(pos.m, aes(x = q.pos, fill = threshold)) + geom_density(alpha=0.9) +
+	xlab("Probability of true exposure") +
+	theme_bw() + facet_grid(~spp) + 
+	theme(legend.position = c(.1, .8), text = element_text(size = 16),
+				panel.grid.minor = element_blank(),
+				panel.grid.major = element_blank()) + 
+	scale_fill_brewer(palette = "GnBu")
+```
+
+So, the posteriors suggest that the test has more false-positive wolves at the lowest threshold of 12. 
+
+
+```{r echo = F, message=FALSE}
+ggplot(neg.m, aes(x = q.neg, fill = threshold)) + geom_density(alpha=0.9) +
+	xlab("Probability of true negative") +
+	theme_bw() + facet_grid(~spp) + 
+	theme(legend.position = c(.1, .8), text = element_text(size = 16),
+				panel.grid.minor = element_blank(),
+				panel.grid.major = element_blank()) + 
+	scale_fill_brewer(palette = "GnBu")
+```
+
+If we look at a model where there is no assumed relationship between wolves and bears (model 4) do we get the same effect?
+```{r echo = F, message=FALSE}
+load("./Output/cutoff16/mod4_16.RData")
+n <- mod5b_16$BUGSoutput$n.sims
+neg <- data.frame(q.neg.bear.mod5 = mod5b_16$BUGSoutput$sims.list$qneg.bears,
+								q.neg.bear.mod4 = mod4$BUGSoutput$sims.list$qneg.bears,
+								q.neg.prior = rbeta(n, 25, 0.5))
+								
+neg.m <- melt(neg)
+
+ggplot(neg.m, aes(x = value, fill = variable)) + geom_density(alpha=0.25)
+
+```
+
+So there is an effect of assuming a model whereby the exposure rate in bears is affected by wolves (model 5).  But the posterior also shifts a little even when we model both species independently of one another (mod4). Not sure I have an explanation for that. 
